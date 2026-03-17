@@ -2,11 +2,34 @@ import streamlit as st
 import pandas as pd
 from itertools import product
 import io
+import re
 
-# --- 공통 설정 및 데이터 ---
-COMPANY_CODE_MAP = {"시디즈": "T01P", "일룸": "T01I", "퍼시스": "T01F", "바로스": "T01B", "FURSYS VN": "T01N"}
+# --- [공통 데이터 및 설정] ---
+COMPANY_CODE_MAP = {
+    "시디즈": "T01P", "일룸": "T01I", "퍼시스": "T01F", 
+    "바로스": "T01B", "FURSYS VN": "T01N", "퍼시스베트남": "T01N"
+}
 
-st.set_page_config(page_title="PLM/ERP 일괄 등록 시스템", layout="wide")
+st.set_page_config(page_title="PLM/ERP 통합 부품 관리 시스템", layout="wide")
+
+# CSS: UI 디자인 최적화
+st.markdown("""
+    <style>
+    .stVerticalBlock { gap: 0.8rem; }
+    .stButton>button { width: 100%; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# GitHub 마스터 파일 로드 (2번 메뉴용)
+@st.cache_data
+def load_color_master():
+    try:
+        # GITHUB 저장소에 color_material_master.xlsx 가 있어야 함
+        return pd.read_excel("color_material_master.xlsx")
+    except:
+        return None
+
+color_master_df = load_color_master()
 
 # 사이드바 메뉴 구성
 st.sidebar.title("🗂️ 메인 메뉴")
@@ -15,13 +38,17 @@ menu = st.sidebar.radio(
     ["1. PLM 일괄 부품 생성", "2. ERP BOM 일괄 등록"]
 )
 
-# 세션 상태 초기화 (메뉴가 바뀌면 초기화될 수 있도록)
-if 'matrix_df' not in st.session_state: st.session_state.matrix_df = None
+# 세션 상태 초기화 (메뉴 변경 시 데이터 혼선 방지)
 if 'file_id' not in st.session_state: st.session_state.file_id = None
+if 'matrix_df' not in st.session_state: st.session_state.matrix_df = None
 
-# --- [공통 함수: 양식 생성 및 업로드] ---
-def upload_section(title):
-    st.subheader(f"1. {title} 양식 업로드")
+# ----------------------------------------------------------------
+# 메뉴 1. PLM 일괄 부품 생성
+# ----------------------------------------------------------------
+if menu == "1. PLM 일괄 부품 생성":
+    st.title("🧱 PLM 일괄 부품 생성 데이터 변환")
+    
+    st.subheader("1. 입력 양식 업로드")
     col1, col2 = st.columns([3, 1])
     with col2:
         template_data = pd.DataFrame(columns=['시리즈명', '단품명', '단품세부구성', '색상', '회사'])
@@ -29,17 +56,18 @@ def upload_section(title):
         with pd.ExcelWriter(template_buf, engine='openpyxl') as writer:
             template_data.to_excel(writer, index=False)
         st.write(" ")
-        st.download_button(label="📥 기본 양식 다운로드", data=template_buf.getvalue(), file_name="입력_양식.xlsx")
+        st.download_button("📥 기본 양식 다운로드", data=template_buf.getvalue(), file_name="PLM_부품생성_양식.xlsx")
+    
     with col1:
-        return st.file_uploader("양식 파일을 업로드하세요", type="xlsx", label_visibility="collapsed")
-
-# --- 1번 메뉴: PLM 일괄 부품 생성 ---
-if menu == "1. PLM 일괄 부품 생성":
-    st.title("🧱 PLM 일괄 부품 생성")
-    uploaded_file = upload_section("PLM 부품 생성")
+        uploaded_file = st.file_uploader("양식 파일을 업로드하세요", type="xlsx", key="plm_up")
 
     if uploaded_file:
+        if st.session_state.file_id != uploaded_file.name:
+            st.session_state.file_id = uploaded_file.name
+            st.session_state.matrix_df = None
+
         df_in = pd.read_excel(uploaded_file)
+        # 입력 순서 유지를 위해 unique()만 사용 (sorted 제거)
         all_units = df_in['단품명'].dropna().unique().tolist()
         all_details = df_in['단품세부구성'].dropna().unique().tolist()
         
@@ -50,11 +78,19 @@ if menu == "1. PLM 일괄 부품 생성":
 
         st.divider()
         st.subheader("2. 단품별 세부구성 출력항목 설정")
+        # 스크롤 없이 전체 보기 높이 계산
         calc_height = (len(st.session_state.matrix_df) + 1) * 35 + 5
-        config_editor = st.data_editor(st.session_state.matrix_df, hide_index=True, use_container_width=True, height=calc_height, key="plm_editor")
+        config_editor = st.data_editor(
+            st.session_state.matrix_df, hide_index=True, use_container_width=True, 
+            height=calc_height, key="plm_matrix",
+            column_config={
+                "단품명": st.column_config.TextColumn("단품명", disabled=True),
+                "단품세부구성": st.column_config.TextColumn("단품세부구성", disabled=True),
+            }
+        )
         st.session_state.matrix_df = config_editor
 
-        if st.button("🚀 PLM 업로드 데이터 생성", use_container_width=True):
+        if st.button("🚀 PLM 업로드용 데이터 생성 시작", use_container_width=True):
             series_names = df_in['시리즈명'].dropna().unique().tolist()
             all_colors = df_in['색상'].dropna().unique().tolist()
             raw_comp = str(df_in['회사'].iloc[0])
@@ -69,6 +105,7 @@ if menu == "1. PLM 일괄 부품 생성":
                     c_str = str(c); suffix = c_str[:3] if c_str.startswith('L') else c_str[:2]
                     mat = "가죽" if c_str.startswith('L') else "패브릭"
                     base = {"부품유형": "MAT", "단위": "ea", "회사": mapped_comp, "개발구분": "R", "색상코드": c_str}
+                    
                     if opt["마감"]:
                         r = base.copy(); r.update({"부품명": f"{s} {u} {d} 마감_{suffix}", "카테고리_대": "WD", "카테고리_중": "WW", "카테고리_소": "WW"})
                         final_list.append(r)
@@ -89,55 +126,87 @@ if menu == "1. PLM 일괄 부품 생성":
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                 df_out.to_excel(writer, index=False)
-            st.download_button("✅ PLM 부품 리스트 다운로드", data=buf.getvalue(), file_name="PLM_부품리스트.xlsx")
+            st.download_button("✅ PLM 부품 리스트 다운로드", data=buf.getvalue(), file_name="PLM_부품리스트_최종.xlsx")
 
-# --- 2번 메뉴: ERP BOM 일괄 등록 ---
+# ----------------------------------------------------------------
+# 메뉴 2. ERP BOM 일괄 등록
+# ----------------------------------------------------------------
 elif menu == "2. ERP BOM 일괄 등록":
     st.title("🌲 ERP BOM 일괄 등록 데이터 생성")
-    uploaded_file = upload_section("ERP BOM 등록")
+    st.subheader("1. ERP 자재 데이터 업로드")
+    
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        bom_template = pd.DataFrame(columns=['자재코드', '자재명', '색상코드'])
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            bom_template.to_excel(writer, index=False)
+        st.write(" ")
+        st.download_button("📥 BOM 입력 양식 다운로드", data=buf.getvalue(), file_name="ERP_BOM_입력양식.xlsx")
+    
+    with col1:
+        uploaded_file = st.file_uploader("자재 데이터를 업로드하세요", type="xlsx", key="bom_up")
 
     if uploaded_file:
-        df_in = pd.read_excel(uploaded_file)
-        all_units = df_in['단품명'].dropna().unique().tolist()
-        all_details = df_in['단품세부구성'].dropna().unique().tolist()
-        
-        if st.session_state.matrix_df is None:
-            rows = [{"단품명": u, "단품세부구성": d, "마감": True, "미싱": True, "재단": True, "벨텍스 재단": False} 
-                    for u, d in product(all_units, all_details)]
-            st.session_state.matrix_df = pd.DataFrame(rows)
-
-        st.divider()
-        st.subheader("2. 단품별 세부구성 구조 설정 (BOM 연결 대상 선택)")
-        calc_height = (len(st.session_state.matrix_df) + 1) * 35 + 5
-        config_editor = st.data_editor(st.session_state.matrix_df, hide_index=True, use_container_width=True, height=calc_height, key="bom_editor")
-        st.session_state.matrix_df = config_editor
-
-        if st.button("🚀 BOM 구조 데이터 생성", use_container_width=True):
-            series_names = df_in['시리즈명'].dropna().unique().tolist()
-            all_colors = df_in['색상'].dropna().unique().tolist()
-            choice_map = st.session_state.matrix_df.set_index(['단품명', '단품세부구성']).to_dict('index')
-            
-            struct_list = []
-            for s, u, d in product(series_names, all_units, all_details):
-                opt = choice_map.get((u, d))
-                if not opt: continue
-                for c in all_colors:
-                    c_str = str(c); suffix = c_str[:3] if c_str.startswith('L') else c_str[:2]
-                    mat = "가죽" if c_str.startswith('L') else "패브릭"
-                    
-                    ma = f"{s} {u} {d} 마감_{suffix}"
-                    mi = f"{s} {u} {d} 미싱_{suffix}"
-                    ja = f"{s} {u} {d} {mat} 재단_{suffix}"
-                    vt = f"{s} {u} {d} 벨텍스 재단"
-
-                    if opt["마감"] and opt["미싱"]: struct_list.append({"상위부품": ma, "하위부품": mi})
-                    if opt["미싱"] and opt["재단"]: struct_list.append({"상위부품": mi, "하위부품": ja})
-                    if opt["미싱"] and opt["벨텍스 재단"]: struct_list.append({"상위부품": mi, "하위부품": vt})
-
+        df_input = pd.read_excel(uploaded_file)
+        if not all(col in df_input.columns for col in ['자재코드', '자재명', '색상코드']):
+            st.error("❗ [자재코드, 자재명, 색상코드] 컬럼이 필요합니다.")
+        else:
             st.divider()
-            df_struct = pd.DataFrame(struct_list).drop_duplicates()
-            st.data_editor(df_struct, use_container_width=True)
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                df_struct.to_excel(writer, index=False)
-            st.download_button("✅ ERP BOM 구조 다운로드", data=buf.getvalue(), file_name="ERP_BOM_구조.xlsx")
+            st.subheader("2. 4단계 BOM 구조 분석 결과")
+            
+            bom_pairs = []
+            # 필터링: 단품, 마감, 미싱, 재단
+            item_list = df_input[~df_input['자재명'].str.contains("마감|미싱|재단")].copy()
+            ma_list = df_input[df_input['자재명'].str.contains("마감")].copy()
+            mi_list = df_input[df_input['자재명'].str.contains("미싱")].copy()
+            ja_list = df_input[df_input['자재명'].str.contains("재단")].copy()
+
+            def get_clean(name): return re.sub(r'_[^_]+$', '', name).strip()
+
+            # 1단계: 단품 -> 마감
+            for _, i in item_list.iterrows():
+                base = get_clean(i['자재명'])
+                match = ma_list[(ma_list['자재명'].str.contains(base, regex=False)) & (ma_list['색상코드'] == i['색상코드'])]
+                for _, m in match.iterrows():
+                    bom_pairs.append({"상위자재코드": i['자재코드'], "상위자재명": i['자재명'], "상위색상": i['색상코드'], "하위자재코드": m['자재코드'], "하위자재명": m['자재명'], "하위색상": m['색상코드'], "정량": 1, "실량": 1, "공정": "소파마감", "공정코드": "TSE051"})
+
+            # 2단계: 마감 -> 미싱
+            for _, m in ma_list.iterrows():
+                base = m['자재명'].replace("마감", "").strip()
+                match = mi_list[mi_list['자재명'].apply(lambda x: x.replace("미싱", "").strip()) == base]
+                for _, mi in match.iterrows():
+                    bom_pairs.append({"상위자재코드": m['자재코드'], "상위자재명": m['자재명'], "상위색상": m['색상코드'], "하위자재코드": mi['자재코드'], "하위자재명": mi['자재명'], "하위색상": mi['색상코드'], "정량": 1, "실량": 1, "공정": "소파마감", "공정코드": "TSE051"})
+
+            # 3단계: 미싱 -> 재단 -> 원자재
+            for _, mi in mi_list.iterrows():
+                base = mi['자재명'].replace("미싱", "").strip()
+                for _, ja in ja_list.iterrows():
+                    t = ""
+                    if "패브릭 재단" in ja['자재명']: t = "패브릭 재단"
+                    elif "가죽 재단" in ja['자재명']: t = "가죽 재단"
+                    elif "벨텍스 재단" in ja['자재명']: t = "벨텍스 재단"
+                    
+                    if t:
+                        j_base = ja['자재명'].replace(t, "").strip()
+                        p_name = "가죽재단" if t == "가죽 재단" else "패브릭 재단"
+                        p_code = "PAN208" if t == "가죽 재단" else "TSE057"
+
+                        # 미싱 -> 재단
+                        if j_base == base or (t == "벨텍스 재단" and j_base == get_clean(base)):
+                            bom_pairs.append({"상위자재코드": mi['자재코드'], "상위자재명": mi['자재명'], "상위색상": mi['색상코드'], "하위자재코드": ja['자재코드'], "하위자재명": ja['자재명'], "하위색상": ja['색상코드'], "정량": 1, "실량": 1, "공정": "재봉", "공정코드": "TSE030"})
+                            
+                            # 재단 -> 원자재 (마지막 레벨)
+                            if t == "벨텍스 재단":
+                                bom_pairs.append({"상위자재코드": ja['자재코드'], "상위자재명": ja['자재명'], "상위색상": ja['색상코드'], "하위자재코드": "FBRF001187-R000", "하위자재명": "벨텍스(중국)", "하위색상": "XX", "정량": "실소요량 입력", "실량": "실소요량 입력", "공정": p_name, "공정코드": p_code})
+                            elif color_master_df is not None:
+                                raw_m = color_master_df[color_master_df['색상'].astype(str) == str(ja['색상코드'])]
+                                if not raw_m.empty:
+                                    bom_pairs.append({"상위자재코드": ja['자재코드'], "상위자재명": ja['자재명'], "상위색상": ja['색상코드'], "하위자재코드": raw_m.iloc[0]['자재코드'], "하위자재명": raw_m.iloc[0]['자재명'], "하위색상": raw_m.iloc[0]['색상'], "정량": "실소요량 입력", "실량": "실소요량 입력", "공정": p_name, "공정코드": p_code})
+
+            if bom_pairs:
+                df_bom = pd.DataFrame(bom_pairs).drop_duplicates()
+                st.data_editor(df_bom[['상위자재코드', '상위자재명', '상위색상', '하위자재코드', '하위자재명', '하위색상', '정량', '실량', '공정']], use_container_width=True)
+                buf = io.BytesIO()
+                df_bom[['상위자재코드', '상위자재명', '상위색상', '하위자재코드', '하위자재명', '하위색상', '정량', '실량', '공정코드']].to_excel(buf, index=False)
+                st.download_button("✅ ERP BOM 등록 데이터 다운로드", data=buf.getvalue(), file_name="ERP_BOM_최종데이터.xlsx")
