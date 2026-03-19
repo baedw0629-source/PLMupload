@@ -10,14 +10,20 @@ COMPANY_CODE_MAP = {
     "바로스": "T01B", "FURSYS VN": "T01N", "퍼시스베트남": "T01N"
 }
 
-st.set_page_config(page_title="PLM/ERP 일괄 등록 시스템", layout="wide")
+st.set_page_config(page_title="PLM/ERP 통합 관리 시스템", layout="wide")
 
-# CSS: UI 디자인 최적화
+# CSS: 이미지 높이 고정(400px) 및 UI 최적화
 st.markdown("""
     <style>
     .stVerticalBlock { gap: 0.8rem; }
     .stButton>button { width: 100%; font-weight: bold; }
-    /* 이미지 캡션 스타일 */
+    /* 이미지 높이를 400px로 제한하고 비율 유지 */
+    .stImage img {
+        max-height: 400px;
+        width: auto;
+        border: 1px solid #eee;
+        border-radius: 5px;
+    }
     .stImage > div > p { font-size: 13px !important; color: #666; font-style: italic; }
     </style>
     """, unsafe_allow_html=True)
@@ -26,34 +32,32 @@ st.markdown("""
 @st.cache_data
 def load_color_master():
     try:
-        # GITHUB 저장소에 color_material_master.xlsx 가 있어야 함
         return pd.read_excel("color_material_master.xlsx")
     except:
         return None
 
 color_master_df = load_color_master()
 
-# 사이드바 메뉴 구성
+# 사이드바 메뉴
 st.sidebar.title("🗂️ 메인 메뉴")
 menu = st.sidebar.radio(
     "원하는 작업을 선택하세요:",
-    ["1. PLM 일괄 자재 등록", "2. ERP BOM 일괄 등록"]
+    ["1. PLM 일괄 자재 생성", "2. ERP BOM 일괄 등록"]
 )
 
-# 세션 상태 초기화
 if 'file_id' not in st.session_state: st.session_state.file_id = None
 if 'matrix_df' not in st.session_state: st.session_state.matrix_df = None
 
 # ----------------------------------------------------------------
-# 메뉴 1. PLM 일괄 자재 등록
+# 메뉴 1. PLM 일괄 자재 생성
 # ----------------------------------------------------------------
-if menu == "1. PLM 일괄 자재 등록":
-    st.title("🧱 PLM 일괄 자재 등록")
+if menu == "1. PLM 일괄 자재 생성":
+    st.title("🧱 PLM 일괄 자재 생성")
     
     st.subheader("1. 입력 양식 업로드")
     
-    # [이미지 가이드 표시] 접지 않고 바로 노출
-    st.image("plm_upload_example.png", caption="▲ PLM 입력 양식 작성 예시", use_container_width=True)
+    # 이미지 가이드 (CSS에 의해 높이 400px 제한됨)
+    st.image("plm_upload_example.png", caption="▲ PLM 입력 양식 작성 예시")
 
     col1, col2 = st.columns([3, 1])
     with col2:
@@ -62,7 +66,7 @@ if menu == "1. PLM 일괄 자재 등록":
         with pd.ExcelWriter(template_buf, engine='openpyxl') as writer:
             template_data.to_excel(writer, index=False)
         st.write(" ")
-        st.download_button("📥 PLM 양식 다운로드", data=template_buf.getvalue(), file_name="PLM_입력양식.xlsx")
+        st.download_button("📥 PLM 양식 다운로드", data=template_buf.getvalue(), file_name="PLM_양식.xlsx")
     
     with col1:
         uploaded_file = st.file_uploader("PLM 양식 파일을 업로드하세요", type="xlsx", key="plm_up", label_visibility="collapsed")
@@ -94,7 +98,7 @@ if menu == "1. PLM 일괄 자재 등록":
         )
         st.session_state.matrix_df = config_editor
 
-        if st.button("🚀 PLM 업로드용 데이터 생성", use_container_width=True):
+        if st.button("🚀 PLM 업로드 데이터 생성", use_container_width=True):
             series_names = df_in['시리즈명'].dropna().unique().tolist()
             all_colors = df_in['색상'].dropna().unique().tolist()
             raw_comp = str(df_in['회사'].iloc[0])
@@ -130,7 +134,7 @@ if menu == "1. PLM 일괄 자재 등록":
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                 df_out.to_excel(writer, index=False)
-            st.download_button("✅ PLM 업로드용 데이터 다운로드", data=buf.getvalue(), file_name="PLM_UPLOAD_RESULT.xlsx")
+            st.download_button("✅ PLM 업로드용 데이터 다운로드", data=buf.getvalue(), file_name="PLM_UPLOAD_DATA.xlsx")
 
 # ----------------------------------------------------------------
 # 메뉴 2. ERP BOM 일괄 등록
@@ -139,8 +143,8 @@ elif menu == "2. ERP BOM 일괄 등록":
     st.title("🌲 ERP BOM 일괄 등록")
     st.subheader("1. 입력 양식 업로드")
     
-    # [이미지 가이드 표시] 접지 않고 바로 노출
-    st.image("bom_upload_example.png", caption="▲ ERP BOM 입력 양식 예시", use_container_width=True)
+    # 이미지 가이드 (CSS에 의해 높이 400px 제한됨)
+    st.image("bom_upload_example.png", caption="▲ ERP BOM 입력 예시")
 
     col1, col2 = st.columns([3, 1])
     with col2:
@@ -150,7 +154,7 @@ elif menu == "2. ERP BOM 일괄 등록":
         st.download_button("📥 BOM 양식 다운로드", data=buf.getvalue(), file_name="BOM_입력양식.xlsx")
     
     with col1:
-        uploaded_file = st.file_uploader("BOM 양식 파일을 업로드하세요", type="xlsx", key="bom_up", label_visibility="collapsed")
+        uploaded_file = st.file_uploader("ERP 양식 파일을 업로드하세요", type="xlsx", key="bom_up", label_visibility="collapsed")
 
     if uploaded_file:
         df_input = pd.read_excel(uploaded_file)
@@ -158,7 +162,7 @@ elif menu == "2. ERP BOM 일괄 등록":
             st.error("❗ 필수 컬럼이 누락되었습니다.")
         else:
             st.divider()
-            st.subheader("2. 4단계 계층 구조 분석 결과")
+            st.subheader("2. ERP 업로드용 데이터 생성 결과")
             
             bom_pairs = []
             item_list = df_input[~df_input['자재명'].str.contains("마감|미싱|재단")].copy()
@@ -212,4 +216,4 @@ elif menu == "2. ERP BOM 일괄 등록":
                 st.data_editor(df_bom[['상위자재코드', '상위자재명', '상위색상', '하위자재코드', '하위자재명', '하위색상', '정량', '실량', '공정']], use_container_width=True)
                 buf = io.BytesIO()
                 df_bom[['상위자재코드', '상위자재명', '상위색상', '하위자재코드', '하위자재명', '하위색상', '정량', '실량', '공정코드']].to_excel(buf, index=False)
-                st.download_button("✅ BOM 업로드용 데이터 다운로드", data=buf.getvalue(), file_name="BOM_UPLOAD_FINAL.xlsx")
+                st.download_button("✅ ERP 업로드용 데이터 다운로드", data=buf.getvalue(), file_name="BOM_UPLOAD_DATA.xlsx")
