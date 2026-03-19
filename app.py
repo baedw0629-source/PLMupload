@@ -130,6 +130,10 @@ if menu == "1. PLM 일괄 자재 생성":
             df_final = pd.DataFrame(final_list)
             g_keys = ['부품명', '부품유형', '단위', '회사', '개발구분', '카테고리_대', '카테고리_중', '카테고리_소']
             df_out = df_final.groupby(g_keys, sort=False)['색상코드'].apply(lambda x: ', '.join(x.unique())).reset_index()
+            
+            # --- [핵심 수정: 부품명 옆에 부품명(EN) 삽입] ---
+            df_out.insert(1, '부품명(EN)', '-')
+            
             st.data_editor(df_out, use_container_width=True)
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
