@@ -10,13 +10,15 @@ COMPANY_CODE_MAP = {
     "바로스": "T01B", "FURSYS VN": "T01N", "퍼시스베트남": "T01N"
 }
 
-st.set_page_config(page_title="PLM/ERP 통합 부품 관리 시스템", layout="wide")
+st.set_page_config(page_title="PLM/ERP 통합 관리 시스템", layout="wide")
 
 # CSS: UI 디자인 최적화
 st.markdown("""
     <style>
     .stVerticalBlock { gap: 0.8rem; }
     .stButton>button { width: 100%; font-weight: bold; }
+    /* 이미지 캡션 스타일 */
+    .stImage > div > p { font-size: 13px !important; color: #666; font-style: italic; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -38,7 +40,7 @@ menu = st.sidebar.radio(
     ["1. PLM 일괄 부품 생성", "2. ERP BOM 일괄 등록"]
 )
 
-# 세션 상태 초기화 (메뉴 변경 시 데이터 혼선 방지)
+# 세션 상태 초기화
 if 'file_id' not in st.session_state: st.session_state.file_id = None
 if 'matrix_df' not in st.session_state: st.session_state.matrix_df = None
 
@@ -49,6 +51,10 @@ if menu == "1. PLM 일괄 부품 생성":
     st.title("🧱 PLM 일괄 부품 생성 데이터 변환")
     
     st.subheader("1. 입력 양식 업로드")
+    
+    # [이미지 가이드 표시] 접지 않고 바로 노출
+    st.image("plm_upload_example.png", caption="▲ PLM 입력 양식 작성 예시 (시리즈, 단품명, 세부구성 순서 엄수)", use_container_width=True)
+
     col1, col2 = st.columns([3, 1])
     with col2:
         template_data = pd.DataFrame(columns=['시리즈명', '단품명', '단품세부구성', '색상', '회사'])
@@ -56,10 +62,10 @@ if menu == "1. PLM 일괄 부품 생성":
         with pd.ExcelWriter(template_buf, engine='openpyxl') as writer:
             template_data.to_excel(writer, index=False)
         st.write(" ")
-        st.download_button("📥 기본 양식 다운로드", data=template_buf.getvalue(), file_name="PLM_부품생성_양식.xlsx")
+        st.download_button("📥 PLM 양식 다운로드", data=template_buf.getvalue(), file_name="PLM_입력양식.xlsx")
     
     with col1:
-        uploaded_file = st.file_uploader("양식 파일을 업로드하세요", type="xlsx", key="plm_up")
+        uploaded_file = st.file_uploader("PLM 양식 파일을 업로드하세요", type="xlsx", key="plm_up", label_visibility="collapsed")
 
     if uploaded_file:
         if st.session_state.file_id != uploaded_file.name:
@@ -67,7 +73,6 @@ if menu == "1. PLM 일괄 부품 생성":
             st.session_state.matrix_df = None
 
         df_in = pd.read_excel(uploaded_file)
-        # 입력 순서 유지를 위해 unique()만 사용 (sorted 제거)
         all_units = df_in['단품명'].dropna().unique().tolist()
         all_details = df_in['단품세부구성'].dropna().unique().tolist()
         
@@ -78,7 +83,6 @@ if menu == "1. PLM 일괄 부품 생성":
 
         st.divider()
         st.subheader("2. 단품별 세부구성 출력항목 설정")
-        # 스크롤 없이 전체 보기 높이 계산
         calc_height = (len(st.session_state.matrix_df) + 1) * 35 + 5
         config_editor = st.data_editor(
             st.session_state.matrix_df, hide_index=True, use_container_width=True, 
@@ -126,7 +130,7 @@ if menu == "1. PLM 일괄 부품 생성":
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                 df_out.to_excel(writer, index=False)
-            st.download_button("✅ PLM 부품 리스트 다운로드", data=buf.getvalue(), file_name="PLM_부품리스트_최종.xlsx")
+            st.download_button("✅ PLM 부품 데이터 다운로드", data=buf.getvalue(), file_name="PLM_RESULT.xlsx")
 
 # ----------------------------------------------------------------
 # 메뉴 2. ERP BOM 일괄 등록
@@ -135,28 +139,28 @@ elif menu == "2. ERP BOM 일괄 등록":
     st.title("🌲 ERP BOM 일괄 등록 데이터 생성")
     st.subheader("1. ERP 자재 데이터 업로드")
     
+    # [이미지 가이드 표시] 접지 않고 바로 노출
+    st.image("bom_upload_example.png", caption="▲ ERP BOM 입력 양식 예시 (자재코드, 자재명, 색상코드 필수)", use_container_width=True)
+
     col1, col2 = st.columns([3, 1])
     with col2:
-        bom_template = pd.DataFrame(columns=['자재코드', '자재명', '색상코드'])
         buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-            bom_template.to_excel(writer, index=False)
+        pd.DataFrame(columns=['자재코드', '자재명', '색상코드']).to_excel(buf, index=False)
         st.write(" ")
-        st.download_button("📥 BOM 입력 양식 다운로드", data=buf.getvalue(), file_name="ERP_BOM_입력양식.xlsx")
+        st.download_button("📥 BOM 양식 다운로드", data=buf.getvalue(), file_name="BOM_입력양식.xlsx")
     
     with col1:
-        uploaded_file = st.file_uploader("자재 데이터를 업로드하세요", type="xlsx", key="bom_up")
+        uploaded_file = st.file_uploader("자재 데이터를 업로드하세요", type="xlsx", key="bom_up", label_visibility="collapsed")
 
     if uploaded_file:
         df_input = pd.read_excel(uploaded_file)
         if not all(col in df_input.columns for col in ['자재코드', '자재명', '색상코드']):
-            st.error("❗ [자재코드, 자재명, 색상코드] 컬럼이 필요합니다.")
+            st.error("❗ 필수 컬럼이 누락되었습니다.")
         else:
             st.divider()
-            st.subheader("2. 4단계 BOM 구조 분석 결과")
+            st.subheader("2. 4단계 계층 구조 분석 결과")
             
             bom_pairs = []
-            # 필터링: 단품, 마감, 미싱, 재단
             item_list = df_input[~df_input['자재명'].str.contains("마감|미싱|재단")].copy()
             ma_list = df_input[df_input['자재명'].str.contains("마감")].copy()
             mi_list = df_input[df_input['자재명'].str.contains("미싱")].copy()
@@ -169,14 +173,14 @@ elif menu == "2. ERP BOM 일괄 등록":
                 base = get_clean(i['자재명'])
                 match = ma_list[(ma_list['자재명'].str.contains(base, regex=False)) & (ma_list['색상코드'] == i['색상코드'])]
                 for _, m in match.iterrows():
-                    bom_pairs.append({"상위자재코드": i['자재코드'], "상위자재명": i['자재명'], "상위색상": i['색상코드'], "하위자재코드": m['자재코드'], "하위자재명": m['자재명'], "하위색상": m['색상코드'], "정량": 1, "실량": 1, "공정": "소파마감", "공정코드": "TSE051"})
+                    bom_pairs.append({"상위자재코드": i['자재코드'], "상위자재명": i['자재명'], "상위색상": i['색상코드'], "하위자재코드": m['자재코드'], "하위자재명": m['자재명'], "하위색상": m['색상코드'], "정량": "1", "실량": "1", "공정": "소파마감", "공정코드": "TSE051"})
 
             # 2단계: 마감 -> 미싱
             for _, m in ma_list.iterrows():
                 base = m['자재명'].replace("마감", "").strip()
                 match = mi_list[mi_list['자재명'].apply(lambda x: x.replace("미싱", "").strip()) == base]
                 for _, mi in match.iterrows():
-                    bom_pairs.append({"상위자재코드": m['자재코드'], "상위자재명": m['자재명'], "상위색상": m['색상코드'], "하위자재코드": mi['자재코드'], "하위자재명": mi['자재명'], "하위색상": mi['색상코드'], "정량": 1, "실량": 1, "공정": "소파마감", "공정코드": "TSE051"})
+                    bom_pairs.append({"상위자재코드": m['자재코드'], "상위자재명": m['자재명'], "상위색상": m['색상코드'], "하위자재코드": mi['자재코드'], "하위자재명": mi['자재명'], "하위색상": mi['색상코드'], "정량": "1", "실량": "1", "공정": "소파마감", "공정코드": "TSE051"})
 
             # 3단계: 미싱 -> 재단 -> 원자재
             for _, mi in mi_list.iterrows():
@@ -192,11 +196,10 @@ elif menu == "2. ERP BOM 일괄 등록":
                         p_name = "가죽재단" if t == "가죽 재단" else "패브릭 재단"
                         p_code = "PAN208" if t == "가죽 재단" else "TSE057"
 
-                        # 미싱 -> 재단
                         if j_base == base or (t == "벨텍스 재단" and j_base == get_clean(base)):
-                            bom_pairs.append({"상위자재코드": mi['자재코드'], "상위자재명": mi['자재명'], "상위색상": mi['색상코드'], "하위자재코드": ja['자재코드'], "하위자재명": ja['자재명'], "하위색상": ja['색상코드'], "정량": 1, "실량": 1, "공정": "재봉", "공정코드": "TSE030"})
+                            bom_pairs.append({"상위자재코드": mi['자재코드'], "상위자재명": mi['자재명'], "상위색상": mi['색상코드'], "하위자재코드": ja['자재코드'], "하위자재명": ja['자재명'], "하위색상": ja['색상코드'], "정량": "1", "실량": "1", "공정": "재봉", "공정코드": "TSE030"})
                             
-                            # 재단 -> 원자재 (마지막 레벨)
+                            # 최종: 원자재 연결
                             if t == "벨텍스 재단":
                                 bom_pairs.append({"상위자재코드": ja['자재코드'], "상위자재명": ja['자재명'], "상위색상": ja['색상코드'], "하위자재코드": "FBRF001187-R000", "하위자재명": "벨텍스(중국)", "하위색상": "XX", "정량": "실소요량 입력", "실량": "실소요량 입력", "공정": p_name, "공정코드": p_code})
                             elif color_master_df is not None:
@@ -209,4 +212,4 @@ elif menu == "2. ERP BOM 일괄 등록":
                 st.data_editor(df_bom[['상위자재코드', '상위자재명', '상위색상', '하위자재코드', '하위자재명', '하위색상', '정량', '실량', '공정']], use_container_width=True)
                 buf = io.BytesIO()
                 df_bom[['상위자재코드', '상위자재명', '상위색상', '하위자재코드', '하위자재명', '하위색상', '정량', '실량', '공정코드']].to_excel(buf, index=False)
-                st.download_button("✅ ERP BOM 등록 데이터 다운로드", data=buf.getvalue(), file_name="ERP_BOM_최종데이터.xlsx")
+                st.download_button("✅ BOM 최종 데이터 다운로드", data=buf.getvalue(), file_name="BOM_FINAL.xlsx")
