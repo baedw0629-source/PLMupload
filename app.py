@@ -10,7 +10,7 @@ COMPANY_CODE_MAP = {
     "바로스": "T01B", "FURSYS VN": "T01N", "퍼시스베트남": "T01N"
 }
 
-st.set_page_config(page_title="PLM/ERP 통합 관리 시스템", layout="wide")
+st.set_page_config(page_title="PLM/ERP 일괄 등록 시스템", layout="wide")
 
 # CSS: 이미지 높이 고정(400px) 및 UI 최적화
 st.markdown("""
