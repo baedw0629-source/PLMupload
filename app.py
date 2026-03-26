@@ -27,10 +27,10 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# GitHub 마스터 파일 로드
 @st.cache_data
 def load_color_master():
     try:
+        # GitHub에 업로드된 마스터 파일 참조
         return pd.read_excel("color_material_master.xlsx")
     except:
         return None
@@ -48,7 +48,7 @@ if 'file_id' not in st.session_state: st.session_state.file_id = None
 if 'matrix_df' not in st.session_state: st.session_state.matrix_df = None
 
 # ----------------------------------------------------------------
-# 메뉴 1. PLM 일괄 자재 생성 (기존 유지)
+# 메뉴 1. PLM 일괄 자재 생성
 # ----------------------------------------------------------------
 if menu == "1. PLM 일괄 자재 생성":
     st.title("🧱 PLM 일괄 자재 생성")
@@ -84,14 +84,7 @@ if menu == "1. PLM 일괄 자재 생성":
         st.divider()
         st.subheader("2. 단품별 세부 항목 설정")
         calc_height = (len(st.session_state.matrix_df) + 1) * 35 + 5
-        config_editor = st.data_editor(
-            st.session_state.matrix_df, hide_index=True, use_container_width=True, 
-            height=calc_height, key="plm_matrix",
-            column_config={
-                "단품명": st.column_config.TextColumn("단품명", disabled=True),
-                "단품세부구성": st.column_config.TextColumn("단품세부구성", disabled=True),
-            }
-        )
+        config_editor = st.data_editor(st.session_state.matrix_df, hide_index=True, use_container_width=True, height=calc_height, key="plm_matrix")
         st.session_state.matrix_df = config_editor
 
         if st.button("🚀 PLM 업로드 데이터 생성", use_container_width=True):
@@ -109,7 +102,6 @@ if menu == "1. PLM 일괄 자재 생성":
                     c_str = str(c); suffix = c_str[:3] if c_str.startswith('L') else c_str[:2]
                     mat = "가죽" if c_str.startswith('L') else "패브릭"
                     base = {"부품유형": "MAT", "단위": "ea", "회사": mapped_comp, "개발구분": "R", "색상코드": c_str}
-                    
                     if opt["마감"]:
                         r = base.copy(); r.update({"부품명": f"{s} {u} {d} 마감_{suffix}", "카테고리_대": "WD", "카테고리_중": "WW", "카테고리_소": "WW"})
                         final_list.append(r)
@@ -122,21 +114,15 @@ if menu == "1. PLM 일괄 자재 생성":
                 if opt["벨텍스 재단"]:
                     final_list.append({"부품명": f"{s} {u} {d} 벨텍스 재단", "부품유형": "MAT", "단위": "ea", "회사": mapped_comp, "개발구분": "R", "카테고리_대": "FB", "카테고리_중": "FP", "카테고리_소": "FJ", "색상코드": "XX"})
             
-            st.divider()
-            df_final = pd.DataFrame(final_list)
-            g_keys = ['부품명', '부품유형', '단위', '회사', '개발구분', '카테고리_대', '카테고리_중', '카테고리_소']
-            df_out = df_final.groupby(g_keys, sort=False)['색상코드'].apply(lambda x: ', '.join(x.unique())).reset_index()
-            
+            df_out = pd.DataFrame(final_list).groupby(['부품명','부품유형','단위','회사','개발구분','카테고리_대','카테고리_중','카테고리_소'], sort=False)['색상코드'].apply(lambda x: ', '.join(x.unique())).reset_index()
             df_out.insert(1, '부품명(EN)', '-')
-            
             st.data_editor(df_out, use_container_width=True)
             buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                df_out.to_excel(writer, index=False)
-            st.download_button("✅ PLM 업로드용 데이터 다운로드", data=buf.getvalue(), file_name="PLM_UPLOAD_DATA.xlsx")
+            with pd.ExcelWriter(buf, engine='openpyxl') as writer: df_out.to_excel(writer, index=False)
+            st.download_button("✅ PLM 업로드 데이터 다운로드", data=buf.getvalue(), file_name="PLM_UPLOAD.xlsx")
 
 # ----------------------------------------------------------------
-# 메뉴 2. ERP BOM 일괄 등록 (로직 수정 반영)
+# 메뉴 2. ERP BOM 일괄 등록 (요청하신 색상코드 절대 기준 반영)
 # ----------------------------------------------------------------
 elif menu == "2. ERP BOM 일괄 등록":
     st.title("🌲 ERP BOM 일괄 등록")
@@ -147,7 +133,6 @@ elif menu == "2. ERP BOM 일괄 등록":
     with col2:
         buf = io.BytesIO()
         pd.DataFrame(columns=['자재코드', '자재명', '색상코드']).to_excel(buf, index=False)
-        st.write(" ")
         st.download_button("📥 BOM 양식 다운로드", data=buf.getvalue(), file_name="BOM_입력양식.xlsx")
     
     with col1:
@@ -156,39 +141,51 @@ elif menu == "2. ERP BOM 일괄 등록":
     if uploaded_file:
         df_input = pd.read_excel(uploaded_file)
         if not all(col in df_input.columns for col in ['자재코드', '자재명', '색상코드']):
-            st.error("❗ 필수 컬럼이 누락되었습니다.")
+            st.error("❗ 필수 컬럼 누락.")
         else:
             st.divider()
             st.subheader("2. ERP 업로드용 데이터 생성 결과")
             
             bom_pairs = []
+            
+            # --- [필터링 및 분류] ---
+            # 이름에 "마감, 미싱, 재단"이 없으면 단품(Item)으로 간주
             item_list = df_input[~df_input['자재명'].str.contains("마감|미싱|재단")].copy()
             ma_list = df_input[df_input['자재명'].str.contains("마감")].copy()
             mi_list = df_input[df_input['자재명'].str.contains("미싱")].copy()
             ja_list = df_input[df_input['자재명'].str.contains("재단")].copy()
 
-            def get_clean(name): return re.sub(r'_[^_]+$', '', name).strip()
-
-            # 1단계: 단품 -> 마감 (동일 색상 매칭)
+            # --- [BOM 매칭 알고리즘] ---
+            
+            # 1단계: 단품 -> 마감 (★색상코드만 같으면 무조건 연결)
             for _, i in item_list.iterrows():
-                base = get_clean(i['자재명'])
-                match = ma_list[(ma_list['자재명'].str.contains(base, regex=False)) & (ma_list['색상코드'] == i['색상코드'])]
+                # 시리즈 구별 없이 색상코드가 동일한 마감재를 모두 찾음
+                match = ma_list[ma_list['색상코드'] == i['색상코드']]
                 for _, m in match.iterrows():
-                    bom_pairs.append({"상위자재코드": i['자재코드'], "상위자재명": i['자재명'], "상위색상": i['색상코드'], "하위자재코드": m['자재코드'], "하위자재명": m['자재명'], "하위색상": m['색상코드'], "정량": "1", "실량": "1", "공정": "소파마감", "공정코드": "TSE051"})
+                    bom_pairs.append({
+                        "상위자재코드": i['자재코드'], "상위자재명": i['자재명'], "상위색상": i['색상코드'], 
+                        "하위자재코드": m['자재코드'], "하위자재명": m['자재명'], "하위색상": m['색상코드'], 
+                        "정량": "1", "실량": "1", "공정": "소파마감", "공정코드": "TSE051"
+                    })
 
-            # 2단계: 마감 -> 미싱 (★수정: 이름 베이스 AND 색상코드 일치 필수)
+            # 2단계: 마감 -> 미싱 (이름 베이스 일치 + 색상코드 일치)
             for _, m in ma_list.iterrows():
-                base = m['자재명'].replace("마감", "").strip()
+                m_base = m['자재명'].replace("마감", "").strip()
+                # 미싱 자재 중 이름 베이스가 같고 색상코드도 같은 것 매칭
                 match = mi_list[
-                    (mi_list['자재명'].apply(lambda x: x.replace("미싱", "").strip()) == base) &
-                    (mi_list['색상코드'] == m['색상코드']) # 색상코드 조건 추가
+                    (mi_list['자재명'].apply(lambda x: x.replace("미싱", "").strip()) == m_base) &
+                    (mi_list['색상코드'] == m['색상코드'])
                 ]
                 for _, mi in match.iterrows():
-                    bom_pairs.append({"상위자재코드": m['자재코드'], "상위자재명": m['자재명'], "상위색상": m['색상코드'], "하위자재코드": mi['자재코드'], "하위자재명": mi['자재명'], "하위색상": mi['색상코드'], "정량": "1", "실량": "1", "공정": "소파마감", "공정코드": "TSE051"})
+                    bom_pairs.append({
+                        "상위자재코드": m['자재코드'], "상위자재명": m['자재명'], "상위색상": m['색상코드'], 
+                        "하위자재코드": mi['자재코드'], "하위자재명": mi['자재명'], "하위색상": mi['색상코드'], 
+                        "정량": "1", "실량": "1", "공정": "소파마감", "공정코드": "TSE051"
+                    })
 
-            # 3단계: 미싱 -> 재단 -> 원자재
+            # 3단계: 미싱 -> 재단 -> 원자재 (이름 베이스 일치 + 색상코드 일치)
             for _, mi in mi_list.iterrows():
-                base = mi['자재명'].replace("미싱", "").strip()
+                mi_base = mi['자재명'].replace("미싱", "").strip()
                 for _, ja in ja_list.iterrows():
                     t = ""
                     if "패브릭 재단" in ja['자재명']: t = "패브릭 재단"
@@ -197,27 +194,34 @@ elif menu == "2. ERP BOM 일괄 등록":
                     
                     if t:
                         j_base = ja['자재명'].replace(t, "").strip()
-                        p_name = "가죽재단" if t == "가죽 재단" else "패브릭 재단"
-                        p_code = "PAN208" if t == "가죽 재단" else "TSE057"
-
-                        # 미싱 -> 재단 매칭 (★수정: 색상코드 일치 확인 - 벨텍스 제외)
-                        if j_base == base or (t == "벨텍스 재단" and j_base == get_clean(base)):
-                            if t != "벨텍스 재단" and ja['색상코드'] != mi['색상코드']:
-                                continue # 색상 다르면 통과
-                                
-                            bom_pairs.append({"상위자재코드": mi['자재코드'], "상위자재명": mi['자재명'], "상위색상": mi['색상코드'], "하위자재코드": ja['자재코드'], "하위자재명": ja['자재명'], "하위색상": ja['색상코드'], "정량": "1", "실량": "1", "공정": "재봉", "공정코드": "TSE030"})
+                        # 이름 베이스 일치 확인 (벨텍스는 색상 접미사 제거 후 비교)
+                        is_match = False
+                        if t == "벨텍스 재단":
+                            mi_clean = re.sub(r'_[^_]+$', '', mi_base).strip()
+                            if j_base == mi_clean: is_match = True
+                        else:
+                            if j_base == mi_base and ja['색상코드'] == mi['색상코드']: is_match = True
+                        
+                        if is_match:
+                            bom_pairs.append({
+                                "상위자재코드": mi['자재코드'], "상위자재명": mi['자재명'], "상위색상": mi['색상코드'], 
+                                "하위자재코드": ja['자재코드'], "하위자재명": ja['자재명'], "하위색상": ja['색상코드'], 
+                                "정량": "1", "실량": "1", "공정": "재봉", "공정코드": "TSE030"
+                            })
                             
-                            # 최종: 원자재 연결
+                            # 최종: 재단 -> 원자재 연결
                             if t == "벨텍스 재단":
-                                bom_pairs.append({"상위자재코드": ja['자재코드'], "상위자재명": ja['자재명'], "상위색상": ja['색상코드'], "하위자재코드": "FBRF001187-R000", "하위자재명": "벨텍스(중국)", "하위색상": "XX", "정량": "실소요량 입력", "실량": "실소요량 입력", "공정": p_name, "공정코드": p_code})
+                                bom_pairs.append({"상위자재코드": ja['자재코드'], "상위자재명": ja['자재명'], "상위색상": ja['색상코드'], "하위자재코드": "FBRF001187-R000", "하위자재명": "벨텍스(중국)", "하위색상": "XX", "정량": "실소요량 입력", "실량": "실소요량 입력", "공정": "패브릭 재단", "공정코드": "TSE057"})
                             elif color_master_df is not None:
                                 raw_m = color_master_df[color_master_df['색상'].astype(str) == str(ja['색상코드'])]
                                 if not raw_m.empty:
-                                    bom_pairs.append({"상위자재코드": ja['자재코드'], "상위자재명": ja['자재명'], "상위색상": ja['색상코드'], "하위자재코드": raw_m.iloc[0]['자재코드'], "하위자재명": raw_m.iloc[0]['자재명'], "하위색상": raw_m.iloc[0]['색상'], "정량": "실소요량 입력", "실량": "실소요량 입력", "공정": p_name, "공정코드": p_code})
+                                    p_n = "가죽재단" if t == "가죽 재단" else "패브릭 재단"
+                                    p_c = "PAN208" if t == "가죽 재단" else "TSE057"
+                                    bom_pairs.append({"상위자재코드": ja['자재코드'], "상위자재명": ja['자재명'], "상위색상": ja['색상코드'], "하위자재코드": raw_m.iloc[0]['자재코드'], "하위자재명": raw_m.iloc[0]['자재명'], "하위색상": raw_m.iloc[0]['색상'], "정량": "실소요량 입력", "실량": "실소요량 입력", "공정": p_n, "공정코드": p_c})
 
             if bom_pairs:
                 df_bom = pd.DataFrame(bom_pairs).drop_duplicates()
                 st.data_editor(df_bom[['상위자재코드', '상위자재명', '상위색상', '하위자재코드', '하위자재명', '하위색상', '정량', '실량', '공정']], use_container_width=True)
                 buf = io.BytesIO()
                 df_bom[['상위자재코드', '상위자재명', '상위색상', '하위자재코드', '하위자재명', '하위색상', '정량', '실량', '공정코드']].to_excel(buf, index=False)
-                st.download_button("✅ ERP 업로드용 데이터 다운로드", data=buf.getvalue(), file_name="BOM_UPLOAD_DATA.xlsx")
+                st.download_button("✅ ERP 업로드 데이터 다운로드", data=buf.getvalue(), file_name="BOM_FINAL_DATA.xlsx")
