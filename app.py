@@ -12,12 +12,11 @@ COMPANY_CODE_MAP = {
 
 st.set_page_config(page_title="PLM/ERP 일괄 등록 시스템", layout="wide")
 
-# CSS: 이미지 높이 고정(400px) 및 UI 최적화
+# CSS: 이미지 높이 고정 및 UI 최적화
 st.markdown("""
     <style>
     .stVerticalBlock { gap: 0.8rem; }
     .stButton>button { width: 100%; font-weight: bold; }
-    /* 이미지 높이를 400px로 제한하고 비율 유지 */
     .stImage img {
         max-height: 400px;
         width: auto;
@@ -28,7 +27,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# GitHub 마스터 파일 로드 (2번 메뉴용)
+# GitHub 마스터 파일 로드
 @st.cache_data
 def load_color_master():
     try:
@@ -49,14 +48,11 @@ if 'file_id' not in st.session_state: st.session_state.file_id = None
 if 'matrix_df' not in st.session_state: st.session_state.matrix_df = None
 
 # ----------------------------------------------------------------
-# 메뉴 1. PLM 일괄 자재 생성
+# 메뉴 1. PLM 일괄 자재 생성 (기존 유지)
 # ----------------------------------------------------------------
 if menu == "1. PLM 일괄 자재 생성":
     st.title("🧱 PLM 일괄 자재 생성")
-    
     st.subheader("1. 입력 양식 업로드")
-    
-    # 이미지 가이드 (CSS에 의해 높이 400px 제한됨)
     st.image("plm_upload_example.png", caption="▲ PLM 입력 양식 작성 예시")
 
     col1, col2 = st.columns([3, 1])
@@ -131,7 +127,6 @@ if menu == "1. PLM 일괄 자재 생성":
             g_keys = ['부품명', '부품유형', '단위', '회사', '개발구분', '카테고리_대', '카테고리_중', '카테고리_소']
             df_out = df_final.groupby(g_keys, sort=False)['색상코드'].apply(lambda x: ', '.join(x.unique())).reset_index()
             
-            # --- [핵심 수정: 부품명 옆에 부품명(EN) 삽입] ---
             df_out.insert(1, '부품명(EN)', '-')
             
             st.data_editor(df_out, use_container_width=True)
@@ -141,13 +136,11 @@ if menu == "1. PLM 일괄 자재 생성":
             st.download_button("✅ PLM 업로드용 데이터 다운로드", data=buf.getvalue(), file_name="PLM_UPLOAD_DATA.xlsx")
 
 # ----------------------------------------------------------------
-# 메뉴 2. ERP BOM 일괄 등록
+# 메뉴 2. ERP BOM 일괄 등록 (로직 수정 반영)
 # ----------------------------------------------------------------
 elif menu == "2. ERP BOM 일괄 등록":
     st.title("🌲 ERP BOM 일괄 등록")
     st.subheader("1. 입력 양식 업로드")
-    
-    # 이미지 가이드 (CSS에 의해 높이 400px 제한됨)
     st.image("bom_upload_example.png", caption="▲ ERP BOM 입력 예시")
 
     col1, col2 = st.columns([3, 1])
@@ -176,17 +169,20 @@ elif menu == "2. ERP BOM 일괄 등록":
 
             def get_clean(name): return re.sub(r'_[^_]+$', '', name).strip()
 
-            # 1단계: 단품 -> 마감
+            # 1단계: 단품 -> 마감 (동일 색상 매칭)
             for _, i in item_list.iterrows():
                 base = get_clean(i['자재명'])
                 match = ma_list[(ma_list['자재명'].str.contains(base, regex=False)) & (ma_list['색상코드'] == i['색상코드'])]
                 for _, m in match.iterrows():
                     bom_pairs.append({"상위자재코드": i['자재코드'], "상위자재명": i['자재명'], "상위색상": i['색상코드'], "하위자재코드": m['자재코드'], "하위자재명": m['자재명'], "하위색상": m['색상코드'], "정량": "1", "실량": "1", "공정": "소파마감", "공정코드": "TSE051"})
 
-            # 2단계: 마감 -> 미싱
+            # 2단계: 마감 -> 미싱 (★수정: 이름 베이스 AND 색상코드 일치 필수)
             for _, m in ma_list.iterrows():
                 base = m['자재명'].replace("마감", "").strip()
-                match = mi_list[mi_list['자재명'].apply(lambda x: x.replace("미싱", "").strip()) == base]
+                match = mi_list[
+                    (mi_list['자재명'].apply(lambda x: x.replace("미싱", "").strip()) == base) &
+                    (mi_list['색상코드'] == m['색상코드']) # 색상코드 조건 추가
+                ]
                 for _, mi in match.iterrows():
                     bom_pairs.append({"상위자재코드": m['자재코드'], "상위자재명": m['자재명'], "상위색상": m['색상코드'], "하위자재코드": mi['자재코드'], "하위자재명": mi['자재명'], "하위색상": mi['색상코드'], "정량": "1", "실량": "1", "공정": "소파마감", "공정코드": "TSE051"})
 
@@ -204,7 +200,11 @@ elif menu == "2. ERP BOM 일괄 등록":
                         p_name = "가죽재단" if t == "가죽 재단" else "패브릭 재단"
                         p_code = "PAN208" if t == "가죽 재단" else "TSE057"
 
+                        # 미싱 -> 재단 매칭 (★수정: 색상코드 일치 확인 - 벨텍스 제외)
                         if j_base == base or (t == "벨텍스 재단" and j_base == get_clean(base)):
+                            if t != "벨텍스 재단" and ja['색상코드'] != mi['색상코드']:
+                                continue # 색상 다르면 통과
+                                
                             bom_pairs.append({"상위자재코드": mi['자재코드'], "상위자재명": mi['자재명'], "상위색상": mi['색상코드'], "하위자재코드": ja['자재코드'], "하위자재명": ja['자재명'], "하위색상": ja['색상코드'], "정량": "1", "실량": "1", "공정": "재봉", "공정코드": "TSE030"})
                             
                             # 최종: 원자재 연결
